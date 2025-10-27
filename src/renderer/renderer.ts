@@ -167,17 +167,33 @@ window.addEventListener("message", async (event) => {
     }
 });
 
-// Tool library will be loaded from tools.json
+// Tool library will be loaded from the registry
 let toolLibrary: any[] = [];
 
-// Load tools.json
+// Load tools from registry
 async function loadToolsLibrary() {
     try {
-        const response = await fetch("tools.json");
-        toolLibrary = await response.json();
+        // Fetch tools from registry
+        const registryTools = await window.toolboxAPI.fetchRegistryTools();
+        
+        // Map registry tools to the format expected by the UI
+        toolLibrary = registryTools.map((tool: any) => ({
+            id: tool.id,
+            name: tool.name,
+            description: tool.description,
+            author: tool.author,
+            category: tool.tags?.[0] || "Tools", // Use first tag as category
+            version: tool.version,
+            icon: tool.icon,
+            downloadUrl: tool.downloadUrl,
+            tags: tool.tags || []
+        }));
+        
+        console.log(`Loaded ${toolLibrary.length} tools from registry`);
     } catch (error) {
-        console.error("Failed to load tools.json:", error);
+        console.error("Failed to load tools from registry:", error);
         toolLibrary = [];
+        // Error will be shown in the marketplace UI
     }
 }
 
@@ -2079,6 +2095,17 @@ async function loadMarketplace() {
     const marketplaceList = document.getElementById("marketplace-tools-list");
     if (!marketplaceList) return;
 
+    // Check if toolLibrary is empty (failed to load from registry)
+    if (!toolLibrary || toolLibrary.length === 0) {
+        marketplaceList.innerHTML = `
+            <div class="empty-state">
+                <p>Unable to load tools from registry.</p>
+                <p class="empty-state-hint">Please check your internet connection and try again.</p>
+            </div>
+        `;
+        return;
+    }
+
     // Get installed tools
     const installedTools = await window.toolboxAPI.getAllTools();
     const installedToolsMap = new Map(installedTools.map((t: any) => [t.id, t]));
@@ -2091,6 +2118,17 @@ async function loadMarketplace() {
         if (!searchTerm) return true;
         return tool.name.toLowerCase().includes(searchTerm) || tool.description.toLowerCase().includes(searchTerm) || tool.category.toLowerCase().includes(searchTerm);
     });
+
+    // Show empty state if no tools match the search
+    if (filteredTools.length === 0) {
+        marketplaceList.innerHTML = `
+            <div class="empty-state">
+                <p>No tools found.</p>
+                <p class="empty-state-hint">${searchTerm ? 'Try a different search term.' : 'Check back later for new tools.'}</p>
+            </div>
+        `;
+        return;
+    }
 
     marketplaceList.innerHTML = filteredTools
         .map((tool) => {
@@ -2152,7 +2190,8 @@ async function loadMarketplace() {
                 target.textContent = "Installing...";
 
                 try {
-                    await window.toolboxAPI.installTool(toolId);
+                    // Use registry-based installation
+                    await window.toolboxAPI.installToolFromRegistry(toolId);
 
                     window.toolboxAPI.utils.showNotification({
                         title: "Tool Installed",
